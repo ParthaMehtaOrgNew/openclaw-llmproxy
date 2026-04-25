@@ -16,6 +16,11 @@ Built for [OpenClaw](https://github.com/ParthaMehtaOrg), the open-source autonom
 - **JSONL request logging** — Every request logged with backend, model, latency, token usage, and security scan results.
 - **Log viewer API** — `GET /logs` endpoint with filtering by backend, model, date, and limit.
 - **Health checks** — `GET /health` shows backend reachability and configured routes.
+- **Model fallback chains** — If a backend fails (5xx/timeout), automatically try the next backend in the chain. Configured per route.
+- **Response caching** — In-memory LRU cache with TTL for non-streaming, deterministic requests. Saves money on repeated prompts.
+- **Spend tracking & budgets** — Per-backend cost calculation, cumulative tracking, `GET /spend` endpoint, and monthly budget enforcement (returns 402 when exceeded).
+- **Load balancing** — Round-robin, random, or least-latency strategies across multiple URLs per backend.
+- **Live web dashboard** — `GET /dashboard` serves a real-time HTML dashboard with request count, latency, error rate, cache stats, and spend by backend.
 - **[Interactive architecture diagram](docs/architecture.html)** — clickable flow visualization of the full request pipeline.
 
 ## Routing
@@ -29,7 +34,7 @@ Built for [OpenClaw](https://github.com/ParthaMehtaOrg), the open-source autonom
 | `openclaw/*` | OpenClaw Gateway | `http://localhost:3000` |
 | Everything else | Ollama | `http://localhost:11434` |
 
-Edit `backends.json` to add, remove, or modify backends:
+Edit `backends.json` to add, remove, or modify backends. All new fields are optional — existing configs work without changes:
 
 ```json
 {
@@ -42,11 +47,27 @@ Edit `backends.json` to add, remove, or modify backends:
     "gpt-": {
       "url": "https://api.openai.com",
       "name": "openai",
-      "timeout_s": 30
+      "timeout_s": 30,
+      "pricing": {"prompt": 0.03, "completion": 0.06},
+      "monthly_budget_usd": 100.0,
+      "fallback": ["anthropic", "ollama"]
     }
   }
 }
 ```
+
+### Backend Config Fields
+
+| Field | Required | Description |
+|---|---|---|
+| `url` | Yes | Backend base URL |
+| `name` | Yes | Backend identifier |
+| `timeout_s` | No | Request timeout in seconds (default 30) |
+| `urls` | No | Multiple URLs for load balancing (overrides `url`) |
+| `strategy` | No | Load balancing strategy: `round_robin`, `random`, `least_latency` |
+| `fallback` | No | Ordered list of backend names to try on failure |
+| `pricing` | No | `{"prompt": cost_per_1k, "completion": cost_per_1k}` for spend tracking |
+| `monthly_budget_usd` | No | Monthly spend cap — returns 402 when exceeded |
 
 ## Quick Start
 
@@ -90,6 +111,16 @@ curl -H "Authorization: Bearer your-secret-key" \
   "http://localhost:8005/logs?backend=ollama&limit=10&since=2026-04-25"
 ```
 
+**Spend tracking:**
+```bash
+curl -H "Authorization: Bearer your-secret-key" http://localhost:8005/spend
+```
+
+**Live dashboard (no auth needed):**
+```
+http://localhost:8005/dashboard
+```
+
 ## OpenClaw Integration
 
 This proxy is designed to sit between OpenClaw and its LLM providers. Instead of configuring each provider separately in OpenClaw, point it at the proxy and let the router handle the rest.
@@ -126,6 +157,9 @@ See `openclaw-config.example.json` for a full example with all provider options.
 - PII scanning on prompts and responses
 - Full request logging with latency, token usage, and security flags
 - Streaming support for real-time agent output
+- Automatic fallback to alternate providers if primary fails
+- Response caching to reduce costs on repeated queries
+- Spend tracking and budget alerts per backend
 
 ## Environment Variables
 
@@ -138,6 +172,8 @@ See `openclaw-config.example.json` for a full example with all provider options.
 | `PROXY_HOST` | `0.0.0.0` | Proxy listen host |
 | `PROXY_PORT` | `8000` | Proxy listen port |
 | `LOG_DIR` | `./logs` | Directory for JSONL log files |
+| `CACHE_TTL_S` | `3600` | Cache entry time-to-live in seconds |
+| `CACHE_MAX_ENTRIES` | `1000` | Maximum cached responses in memory |
 
 ## VPS Deployment
 
@@ -159,16 +195,18 @@ sudo nginx -t && sudo systemctl reload nginx
 See the [interactive architecture diagram](docs/architecture.html) for a visual walkthrough of the full request flow — from client through middleware, proxy core, and out to backends.
 
 ```
-Client → Nginx (TLS) → Size Limit → Auth → Rate Limit → FastAPI Proxy → Backend
-                                                            ↕         ↕
-                                                         Logger   Security Scanner
+Client → Nginx (TLS) → Size Limit → Auth → Rate Limit → Cache Check
+                                                             ↓ (miss)
+                                              Budget Check → FastAPI Proxy → Backend
+                                                       ↓         ↕         ↕    ↓ (fail)
+                                                    Spend     Logger   Security  Fallback Chain
 ```
 
 ## Tests
 
 ```bash
 pip install pytest
-python -m pytest tests/test_proxy.py -v
+python -m pytest tests/ -v
 ```
 
 ## Project Structure
@@ -182,13 +220,23 @@ python -m pytest tests/test_proxy.py -v
 │   ├── sizelimit.py           # Request body size limit middleware
 │   ├── retry.py               # Retry logic with exponential backoff
 │   ├── router.py              # Model-prefix backend routing
-│   ├── dashboard.py           # GET /logs endpoint
+│   ├── dashboard.py           # GET /logs and GET /spend endpoints
+│   ├── web_dashboard.py       # GET /dashboard live HTML dashboard
+│   ├── loadbalancer.py        # Round-robin, random, least-latency balancing
+│   ├── fallback.py            # Model fallback chain resolution
+│   ├── cache.py               # In-memory LRU response cache with TTL
+│   ├── spend.py               # Cost tracking, budget enforcement
 │   ├── logger.py              # JSONL request logging
 │   ├── security.py            # PII & injection scanning
 │   └── config.py              # Environment variable config
 ├── openclaw-config.example.json # Example OpenClaw config pointing at this proxy
 ├── tests/
-│   └── test_proxy.py          # 33 tests
+│   ├── test_proxy.py          # Core proxy tests (33)
+│   ├── test_loadbalancer.py   # Load balancing tests (6)
+│   ├── test_fallback.py       # Fallback chain tests (9)
+│   ├── test_cache.py          # Response cache tests (11)
+│   ├── test_spend.py          # Spend tracking tests (5)
+│   └── test_dashboard_web.py  # Web dashboard tests (4)
 ├── systemd/
 │   ├── openclaw-proxy.service # Proxy systemd unit
 │   └── ollama.service         # Ollama systemd unit
