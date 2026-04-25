@@ -55,4 +55,6 @@ async def request_with_retry(
                 await asyncio.sleep(BACKOFF_BASE * (2 ** attempt))
                 continue
             raise
+        except (httpx.ConnectError, httpx.RemoteProtocolError):
+            raise
     raise last_exc or httpx.TimeoutException("Request timed out after retries")

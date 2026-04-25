@@ -109,6 +109,8 @@ async def _handle_buffered(request, path, url, headers, body,
             )
     except httpx.TimeoutException:
         return JSONResponse(status_code=504, content={"error": "Backend timed out"})
+    except (httpx.ConnectError, httpx.RemoteProtocolError) as exc:
+        return JSONResponse(status_code=502, content={"error": f"Cannot connect to backend '{backend_name}': {exc}"})
 
     latency_ms = (time.perf_counter() - start) * 1000
 
@@ -163,6 +165,9 @@ async def _handle_streaming(request, path, url, headers, body,
     except httpx.TimeoutException:
         await client.aclose()
         return JSONResponse(status_code=504, content={"error": "Backend timed out"})
+    except (httpx.ConnectError, httpx.RemoteProtocolError) as exc:
+        await client.aclose()
+        return JSONResponse(status_code=502, content={"error": f"Cannot connect to backend '{backend_name}': {exc}"})
 
     async def event_generator():
         try:
