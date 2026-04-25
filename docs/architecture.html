@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw LLM Proxy — Architecture Flow</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #0f1117;
+    color: #e1e4e8;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  h1 {
+    text-align: center;
+    padding: 32px 0 8px;
+    font-size: 28px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .subtitle {
+    text-align: center;
+    color: #8b949e;
+    font-size: 14px;
+    margin-bottom: 32px;
+  }
+  .subtitle span { color: #58a6ff; cursor: pointer; }
+
+  /* ── Canvas ── */
+  .canvas {
+    position: relative;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px 40px 60px;
+  }
+
+  /* ── Boxes ── */
+  .box {
+    position: absolute;
+    border-radius: 14px;
+    padding: 18px 22px;
+    min-width: 170px;
+    text-align: center;
+    cursor: pointer;
+    transition: transform .2s, box-shadow .2s;
+    z-index: 2;
+  }
+  .box:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  }
+  .box .icon { font-size: 28px; margin-bottom: 6px; }
+  .box .label { font-weight: 600; font-size: 15px; }
+  .box .desc { font-size: 11px; opacity: .75; margin-top: 4px; line-height: 1.4; }
+
+  /* Box colors */
+  .box.client    { background: linear-gradient(135deg, #1a3a5c, #1e4976); border: 1px solid #2d5a8e; }
+  .box.gateway   { background: linear-gradient(135deg, #2a1a4e, #3b2570); border: 1px solid #5b3a9e; }
+  .box.proxy     { background: linear-gradient(135deg, #0d4a3a, #126b50); border: 1px solid #1a9e70; min-width: 220px; }
+  .box.middleware { background: linear-gradient(135deg, #3a2a10, #5a4020); border: 1px solid #8a6a30; }
+  .box.backend   { background: linear-gradient(135deg, #1a1a3a, #2a2a5a); border: 1px solid #4a4a8a; }
+  .box.local     { background: linear-gradient(135deg, #3a1a1a, #5a2a2a); border: 1px solid #8a4a4a; }
+  .box.logging   { background: linear-gradient(135deg, #1a3a2a, #2a4a3a); border: 1px solid #3a7a5a; }
+  .box.config    { background: linear-gradient(135deg, #3a3a1a, #4a4a2a); border: 1px solid #7a7a3a; }
+
+  .box.active { box-shadow: 0 0 30px rgba(88,166,255,.4); border-color: #58a6ff; }
+
+  /* ── SVG arrows ── */
+  svg.arrows {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    pointer-events: none;
+  }
+  svg.arrows line, svg.arrows path {
+    stroke-width: 2;
+    fill: none;
+  }
+
+  /* ── Detail panel ── */
+  .detail-panel {
+    position: fixed;
+    right: -420px;
+    top: 0;
+    width: 400px;
+    height: 100vh;
+    background: #161b22;
+    border-left: 1px solid #30363d;
+    padding: 32px 24px;
+    transition: right .3s ease;
+    z-index: 100;
+    overflow-y: auto;
+  }
+  .detail-panel.open { right: 0; }
+  .detail-panel h2 { font-size: 20px; margin-bottom: 8px; color: #fff; }
+  .detail-panel .tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+  .detail-panel .section { margin-bottom: 20px; }
+  .detail-panel .section h3 { font-size: 13px; color: #8b949e; text-transform: uppercase; margin-bottom: 6px; }
+  .detail-panel .section p, .detail-panel .section li { font-size: 14px; line-height: 1.6; color: #c9d1d9; }
+  .detail-panel .section ul { padding-left: 18px; }
+  .detail-panel .section code {
+    background: #0d1117;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #79c0ff;
+  }
+  .detail-panel .close-btn {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: none;
+    border: 1px solid #30363d;
+    color: #8b949e;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .detail-panel .close-btn:hover { background: #21262d; color: #fff; }
+  .overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.5);
+    z-index: 99;
+  }
+  .overlay.open { display: block; }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    flex-wrap: wrap;
+    margin: 20px auto;
+    max-width: 900px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #8b949e;
+  }
+  .legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+  }
+
+  /* ── Animate arrows ── */
+  @keyframes flowDash {
+    to { stroke-dashoffset: -20; }
+  }
+  .flow-arrow {
+    stroke-dasharray: 8 6;
+    animation: flowDash 1s linear infinite;
+  }
+</style>
+</head>
+<body>
+
+<h1>OpenClaw LLM Proxy — Architecture</h1>
+<p class="subtitle">Click any box to see details &middot; <span onclick="runAnimation()">&#9654; Replay flow animation</span></p>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#2d5a8e"></div> Client</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#5b3a9e"></div> Gateway</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#1a9e70"></div> Proxy Core</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#8a6a30"></div> Middleware</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#4a4a8a"></div> Cloud Backend</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#8a4a4a"></div> Local Backend</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3a7a5a"></div> Logging</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#7a7a3a"></div> Config</div>
+</div>
+
+<div class="canvas" id="canvas" style="height:820px">
+  <!-- Row 1: Clients -->
+  <div class="box client" id="openclaw" style="left:80px;top:20px" onclick="showDetail('openclaw')">
+    <div class="icon">🤖</div>
+    <div class="label">OpenClaw Agent</div>
+    <div class="desc">AI agent / CLI / app</div>
+  </div>
+  <div class="box client" id="curl" style="left:340px;top:20px" onclick="showDetail('curl')">
+    <div class="icon">💻</div>
+    <div class="label">Direct Client</div>
+    <div class="desc">curl / SDK / any HTTP</div>
+  </div>
+  <div class="box client" id="webapp" style="left:600px;top:20px" onclick="showDetail('webapp')">
+    <div class="icon">🌐</div>
+    <div class="label">Web App</div>
+    <div class="desc">Frontend / API consumer</div>
+  </div>
+
+  <!-- Row 2: Nginx -->
+  <div class="box gateway" id="nginx" style="left:300px;top:140px;min-width:240px" onclick="showDetail('nginx')">
+    <div class="icon">🔒</div>
+    <div class="label">Nginx Reverse Proxy</div>
+    <div class="desc">TLS termination &middot; openclaw-proxy.conf</div>
+  </div>
+
+  <!-- Row 3: Middleware pipeline -->
+  <div class="box middleware" id="sizelimit" style="left:50px;top:270px" onclick="showDetail('sizelimit')">
+    <div class="icon">📏</div>
+    <div class="label">Size Limit</div>
+    <div class="desc">MAX_REQUEST_SIZE_MB<br>→ 413 if exceeded</div>
+  </div>
+  <div class="box middleware" id="auth" style="left:280px;top:270px" onclick="showDetail('auth')">
+    <div class="icon">🔑</div>
+    <div class="label">Auth</div>
+    <div class="desc">Bearer token check<br>→ 401 if invalid</div>
+  </div>
+  <div class="box middleware" id="ratelimit" style="left:500px;top:270px" onclick="showDetail('ratelimit')">
+    <div class="icon">⏱️</div>
+    <div class="label">Rate Limiter</div>
+    <div class="desc">Sliding window / IP<br>→ 429 if exceeded</div>
+  </div>
+
+  <!-- Row 4: Proxy core -->
+  <div class="box proxy" id="fastapi" style="left:240px;top:410px;min-width:300px" onclick="showDetail('fastapi')">
+    <div class="icon">⚡</div>
+    <div class="label">FastAPI Proxy Core</div>
+    <div class="desc">proxy/main.py &middot; Router &middot; Retry &middot; Streaming &middot; PII Scan</div>
+  </div>
+
+  <!-- Config + Logging flanking -->
+  <div class="box config" id="backends" style="left:30px;top:420px;min-width:150px" onclick="showDetail('backends')">
+    <div class="icon">⚙️</div>
+    <div class="label">backends.json</div>
+    <div class="desc">Route config</div>
+  </div>
+  <div class="box logging" id="logger" style="left:600px;top:410px;min-width:170px" onclick="showDetail('logger')">
+    <div class="icon">📝</div>
+    <div class="label">Logger</div>
+    <div class="desc">requests.jsonl<br>GET /logs &middot; GET /health</div>
+  </div>
+
+  <!-- Row 5: Security scan -->
+  <div class="box middleware" id="security" style="left:600px;top:530px;min-width:170px" onclick="showDetail('security')">
+    <div class="icon">🛡️</div>
+    <div class="label">Security Scanner</div>
+    <div class="desc">PII &middot; Injection detection<br>AgnosticSecurity</div>
+  </div>
+
+  <!-- Row 6: Backends -->
+  <div class="box backend" id="openai" style="left:10px;top:580px" onclick="showDetail('openai')">
+    <div class="icon">🟢</div>
+    <div class="label">OpenAI</div>
+    <div class="desc">gpt-* models</div>
+  </div>
+  <div class="box backend" id="anthropic" style="left:190px;top:580px" onclick="showDetail('anthropic')">
+    <div class="icon">🟠</div>
+    <div class="label">Anthropic</div>
+    <div class="desc">claude-* models</div>
+  </div>
+  <div class="box backend" id="google" style="left:370px;top:580px" onclick="showDetail('google')">
+    <div class="icon">🔵</div>
+    <div class="label">Google</div>
+    <div class="desc">gemini-* models</div>
+  </div>
+
+  <div class="box local" id="ollama" style="left:100px;top:710px" onclick="showDetail('ollama')">
+    <div class="icon">🦙</div>
+    <div class="label">Ollama</div>
+    <div class="desc">localhost:11434<br>ollama.service (systemd)<br>Default backend</div>
+  </div>
+  <div class="box local" id="vllm" style="left:340px;top:710px" onclick="showDetail('vllm')">
+    <div class="icon">🚀</div>
+    <div class="label">vLLM</div>
+    <div class="desc">localhost:8080<br>vllm/* models</div>
+  </div>
+  <div class="box local" id="openclawgw" style="left:560px;top:710px" onclick="showDetail('openclawgw')">
+    <div class="icon">🐾</div>
+    <div class="label">OpenClaw Gateway</div>
+    <div class="desc">localhost:3000<br>openclaw/* models</div>
+  </div>
+
+  <!-- SVG Arrows -->
+  <svg class="arrows" id="arrowsSvg"></svg>
+</div>
+
+<!-- Detail panel -->
+<div class="overlay" id="overlay" onclick="closeDetail()"></div>
+<div class="detail-panel" id="detailPanel">
+  <button class="close-btn" onclick="closeDetail()">&times;</button>
+  <div id="detailContent"></div>
+</div>
+
+<script>
+// ── Arrow definitions ──
+const arrows = [
+  // Clients → Nginx
+  { from: 'openclaw', to: 'nginx', color: '#58a6ff', label: 'HTTPS' },
+  { from: 'curl', to: 'nginx', color: '#58a6ff', label: '' },
+  { from: 'webapp', to: 'nginx', color: '#58a6ff', label: '' },
+  // Nginx → Size Limit (middleware entry)
+  { from: 'nginx', to: 'auth', color: '#bc8cff', label: 'HTTP' },
+  // Middleware chain
+  { from: 'sizelimit', to: 'auth', color: '#d4a030', label: '' },
+  { from: 'auth', to: 'ratelimit', color: '#d4a030', label: '' },
+  // Rate limit → Proxy core
+  { from: 'ratelimit', to: 'fastapi', color: '#3fb950', label: '' },
+  { from: 'sizelimit', to: 'fastapi', color: '#3fb950', dashed: true, label: '' },
+  // Config → Proxy
+  { from: 'backends', to: 'fastapi', color: '#b0a030', label: 'routes' },
+  // Proxy → Logging
+  { from: 'fastapi', to: 'logger', color: '#3a7a5a', label: 'log' },
+  // Proxy → Security
+  { from: 'fastapi', to: 'security', color: '#d4a030', label: 'scan' },
+  // Proxy → Cloud backends
+  { from: 'fastapi', to: 'openai', color: '#3fb950', label: 'gpt-*' },
+  { from: 'fastapi', to: 'anthropic', color: '#f0883e', label: 'claude-*' },
+  { from: 'fastapi', to: 'google', color: '#58a6ff', label: 'gemini-*' },
+  // Proxy → Local backends
+  { from: 'fastapi', to: 'ollama', color: '#f85149', label: 'default' },
+  { from: 'fastapi', to: 'vllm', color: '#f85149', label: 'vllm/*' },
+  { from: 'fastapi', to: 'openclawgw', color: '#bc8cff', label: 'openclaw/*' },
+];
+
+function getCenter(el) {
+  const r = el.getBoundingClientRect();
+  const cr = document.getElementById('canvas').getBoundingClientRect();
+  return {
+    x: r.left - cr.left + r.width / 2,
+    y: r.top - cr.top + r.height / 2,
+    w: r.width, h: r.height,
+    top: r.top - cr.top,
+    bottom: r.top - cr.top + r.height,
+    left: r.left - cr.left,
+    right: r.left - cr.left + r.width
+  };
+}
+
+function drawArrows() {
+  const svg = document.getElementById('arrowsSvg');
+  svg.innerHTML = '';
+  // Arrowhead marker
+  const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+  arrows.forEach((a, i) => {
+    const marker = document.createElementNS('http://www.w3.org/2000/svg','marker');
+    marker.setAttribute('id', 'ah'+i);
+    marker.setAttribute('markerWidth','10');
+    marker.setAttribute('markerHeight','7');
+    marker.setAttribute('refX','10');
+    marker.setAttribute('refY','3.5');
+    marker.setAttribute('orient','auto');
+    const poly = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+    poly.setAttribute('points','0 0, 10 3.5, 0 7');
+    poly.setAttribute('fill', a.color);
+    marker.appendChild(poly);
+    defs.appendChild(marker);
+  });
+  svg.appendChild(defs);
+
+  arrows.forEach((a, i) => {
+    const fromEl = document.getElementById(a.from);
+    const toEl = document.getElementById(a.to);
+    if (!fromEl || !toEl) return;
+    const f = getCenter(fromEl);
+    const t = getCenter(toEl);
+
+    // Determine best connection points
+    let x1, y1, x2, y2;
+    const dy = t.y - f.y;
+    const dx = t.x - f.x;
+
+    if (Math.abs(dy) > Math.abs(dx) * 0.5) {
+      // Vertical-ish
+      if (dy > 0) { x1=f.x; y1=f.bottom; x2=t.x; y2=t.top; }
+      else { x1=f.x; y1=f.top; x2=t.x; y2=t.bottom; }
+    } else {
+      // Horizontal-ish
+      if (dx > 0) { x1=f.right; y1=f.y; x2=t.left; y2=t.y; }
+      else { x1=f.left; y1=f.y; x2=t.right; y2=t.y; }
+    }
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1', x1);
+    line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2);
+    line.setAttribute('y2', y2);
+    line.setAttribute('stroke', a.color);
+    line.setAttribute('marker-end', `url(#ah${i})`);
+    line.classList.add('flow-arrow');
+    if (a.dashed) { line.style.strokeDasharray = '4 4'; }
+    line.style.opacity = '0.7';
+    svg.appendChild(line);
+
+    // Label
+    if (a.label) {
+      const text = document.createElementNS('http://www.w3.org/2000/svg','text');
+      text.setAttribute('x', (x1+x2)/2 + 6);
+      text.setAttribute('y', (y1+y2)/2 - 6);
+      text.setAttribute('fill', a.color);
+      text.setAttribute('font-size', '11');
+      text.setAttribute('font-family', 'system-ui, sans-serif');
+      text.setAttribute('font-weight', '600');
+      text.textContent = a.label;
+      svg.appendChild(text);
+    }
+  });
+}
+
+// ── Detail data ──
+const details = {
+  openclaw: {
+    title: 'OpenClaw Agent',
+    tag: 'CLIENT', tagColor: '#2d5a8e',
+    file: 'openclaw-config.example.json',
+    sections: [
+      { h: 'What it is', p: 'Open-source autonomous AI agent that runs locally or on a server. Manages files, interacts with apps, and automates tasks.' },
+      { h: 'How it connects', p: 'Configured to use this proxy as its LLM endpoint. Set <code>base_url</code> to <code>http://localhost:8005/v1</code> and pass the proxy API key.' },
+      { h: 'Supported models', list: ['<code>gpt-4</code> → routed to OpenAI', '<code>claude-3-opus</code> → routed to Anthropic', '<code>llama3.2:1b</code> → routed to Ollama', '<code>openclaw/agent</code> → routed to OpenClaw Gateway'] },
+    ]
+  },
+  curl: {
+    title: 'Direct Client (curl / SDK)',
+    tag: 'CLIENT', tagColor: '#2d5a8e',
+    file: null,
+    sections: [
+      { h: 'What it is', p: 'Any HTTP client — curl, Python requests, OpenAI SDK, etc.' },
+      { h: 'Usage', p: '<code>curl -H "Authorization: Bearer YOUR_KEY" http://localhost:8005/v1/chat/completions</code>' },
+    ]
+  },
+  webapp: {
+    title: 'Web Application',
+    tag: 'CLIENT', tagColor: '#2d5a8e',
+    file: null,
+    sections: [
+      { h: 'What it is', p: 'Any frontend or backend service consuming LLM APIs through the proxy.' },
+      { h: 'Connection', p: 'Point your OpenAI SDK\'s <code>base_url</code> at the proxy instead of <code>api.openai.com</code>. The proxy handles routing to the right backend.' },
+    ]
+  },
+  nginx: {
+    title: 'Nginx Reverse Proxy',
+    tag: 'GATEWAY', tagColor: '#5b3a9e',
+    file: 'nginx/openclaw-proxy.conf',
+    sections: [
+      { h: 'What it does', p: 'TLS termination, HTTPS → HTTP proxying to FastAPI on port 8000.' },
+      { h: 'Key config', list: ['SSL via Let\'s Encrypt certs', '<code>proxy_buffering off</code> for SSE streaming', '<code>proxy_read_timeout 300s</code> for long LLM calls', '<code>client_max_body_size 10m</code>'] },
+      { h: 'VPS deployment', p: 'Copy to <code>/etc/nginx/sites-available/</code>, update <code>server_name</code> and SSL paths, symlink to sites-enabled.' },
+    ]
+  },
+  sizelimit: {
+    title: 'Size Limit Middleware',
+    tag: 'MIDDLEWARE', tagColor: '#8a6a30',
+    file: 'proxy/sizelimit.py',
+    sections: [
+      { h: 'What it does', p: 'Rejects requests exceeding <code>MAX_REQUEST_SIZE_MB</code> (default 10MB). Returns <code>413</code>.' },
+      { h: 'Execution order', p: '<strong>1st in chain</strong> (outermost). Runs before auth and rate limiting to block oversized payloads early.' },
+      { h: 'Exemptions', p: '<code>/health</code> is exempt.' },
+    ]
+  },
+  auth: {
+    title: 'Auth Middleware',
+    tag: 'MIDDLEWARE', tagColor: '#8a6a30',
+    file: 'proxy/auth.py',
+    sections: [
+      { h: 'What it does', p: 'Checks <code>Authorization: Bearer &lt;token&gt;</code> against <code>PROXY_API_KEY</code> env var. Returns <code>401</code> if invalid.' },
+      { h: 'Execution order', p: '<strong>2nd in chain</strong>. Runs after size limit, before rate limiting.' },
+      { h: 'Exemptions', p: '<code>/health</code> is exempt. If <code>PROXY_API_KEY</code> is empty, auth is disabled (dev mode).' },
+    ]
+  },
+  ratelimit: {
+    title: 'Rate Limiter Middleware',
+    tag: 'MIDDLEWARE', tagColor: '#8a6a30',
+    file: 'proxy/ratelimit.py',
+    sections: [
+      { h: 'What it does', p: 'Sliding window rate limiter. Per-IP, in-memory. Returns <code>429</code> with <code>Retry-After: 60</code> header.' },
+      { h: 'Execution order', p: '<strong>3rd in chain</strong> (innermost middleware). Only authenticated requests consume rate limit budget.' },
+      { h: 'Config', list: ['<code>RATE_LIMIT_RPM=60</code> (requests per minute)', '<code>RATE_LIMIT_RPM=0</code> disables limiting', '<code>/health</code> is exempt'] },
+    ]
+  },
+  fastapi: {
+    title: 'FastAPI Proxy Core',
+    tag: 'PROXY ENGINE', tagColor: '#1a9e70',
+    file: 'proxy/main.py',
+    sections: [
+      { h: 'What it does', p: 'The heart of the proxy. Receives requests, resolves backend from model prefix, forwards via httpx, handles streaming and buffered responses.' },
+      { h: 'Key components', list: [
+        '<strong>Router</strong> (<code>proxy/router.py</code>) — prefix matching from <code>backends.json</code>',
+        '<strong>Retry</strong> (<code>proxy/retry.py</code>) — exponential backoff on 429/503, per-backend timeouts',
+        '<strong>Streaming</strong> — detects <code>"stream": true</code>, uses <code>StreamingResponse</code> for SSE',
+        '<strong>Buffered</strong> — full response for non-streaming, enables PII scanning',
+      ]},
+      { h: 'Endpoints', list: [
+        '<code>GET /health</code> — backend status',
+        '<code>GET /logs</code> — log viewer with filters',
+        '<code>ANY /{path}</code> — catch-all proxy',
+      ]},
+    ]
+  },
+  backends: {
+    title: 'backends.json',
+    tag: 'CONFIG', tagColor: '#7a7a3a',
+    file: 'backends.json',
+    sections: [
+      { h: 'What it is', p: 'The routing table. Maps model prefixes to backend URLs. Edit this file to add/remove backends — no code changes needed.' },
+      { h: 'Current routes', list: [
+        '<code>gpt-</code> → OpenAI (timeout: 30s)',
+        '<code>claude-</code> → Anthropic (timeout: 30s)',
+        '<code>gemini-</code> → Google (timeout: 30s)',
+        '<code>vllm/</code> → localhost:8080 (timeout: 60s)',
+        '<code>openclaw/</code> → localhost:3000 (timeout: 120s)',
+        '<code>default</code> → Ollama localhost:11434 (timeout: 60s)',
+      ]},
+    ]
+  },
+  logger: {
+    title: 'Request Logger & Dashboard',
+    tag: 'LOGGING', tagColor: '#3a7a5a',
+    file: 'proxy/logger.py + proxy/dashboard.py',
+    sections: [
+      { h: 'What it does', p: 'Logs every request to <code>logs/requests.jsonl</code>. Exposes <code>GET /logs</code> for querying.' },
+      { h: 'Logged fields', list: ['timestamp, method, path, backend, model', 'status_code, latency_ms', 'prompt_tokens, completion_tokens, total_tokens', 'inbound_scan (PII, injection)', 'outbound_scan (PII leakage)'] },
+      { h: 'Query params', p: '<code>?backend=ollama&model=llama3.2:1b&limit=50&since=2026-04-25</code>' },
+    ]
+  },
+  security: {
+    title: 'Security Scanner',
+    tag: 'SECURITY', tagColor: '#8a6a30',
+    file: 'proxy/security.py',
+    sections: [
+      { h: 'What it does', list: ['<strong>Inbound</strong>: Scans prompt messages for PII (SSN, email, etc.) and injection attacks', '<strong>Outbound</strong>: Scans LLM responses for PII leakage'] },
+      { h: 'Integration', p: 'Uses AgnosticSecurity library. Gracefully disabled if not installed.' },
+      { h: 'In logs', p: 'Results appear as <code>inbound_scan</code> and <code>outbound_scan</code> in each log entry.' },
+    ]
+  },
+  openai: {
+    title: 'OpenAI',
+    tag: 'CLOUD BACKEND', tagColor: '#4a4a8a',
+    file: null,
+    sections: [
+      { h: 'URL', p: '<code>https://api.openai.com</code>' },
+      { h: 'Prefix', p: '<code>gpt-*</code> (e.g., gpt-4, gpt-3.5-turbo)' },
+      { h: 'Auth', p: 'Pass your OpenAI API key in the request headers. The proxy forwards it as-is.' },
+    ]
+  },
+  anthropic: {
+    title: 'Anthropic',
+    tag: 'CLOUD BACKEND', tagColor: '#4a4a8a',
+    file: null,
+    sections: [
+      { h: 'URL', p: '<code>https://api.anthropic.com</code>' },
+      { h: 'Prefix', p: '<code>claude-*</code> (e.g., claude-3-opus, claude-3-sonnet)' },
+      { h: 'Auth', p: 'Pass your Anthropic API key in request headers.' },
+    ]
+  },
+  google: {
+    title: 'Google (Gemini)',
+    tag: 'CLOUD BACKEND', tagColor: '#4a4a8a',
+    file: null,
+    sections: [
+      { h: 'URL', p: '<code>https://generativelanguage.googleapis.com</code>' },
+      { h: 'Prefix', p: '<code>gemini-*</code> (e.g., gemini-pro)' },
+    ]
+  },
+  ollama: {
+    title: 'Ollama (Default Backend)',
+    tag: 'LOCAL BACKEND', tagColor: '#8a4a4a',
+    file: 'systemd/ollama.service',
+    sections: [
+      { h: 'URL', p: '<code>http://localhost:11434</code>' },
+      { h: 'Role', p: '<strong>Default backend</strong> — any model that doesn\'t match a prefix route goes here.' },
+      { h: 'Managed by', p: '<code>systemd/ollama.service</code> — runs <code>ollama serve</code> with auto-restart.' },
+      { h: 'Models available', list: ['llama3.2:1b', 'llama3.1:latest', 'qwen2.5-coder:7b', 'gemma3:1b', 'nomic-embed-text', 'mxbai-embed-large'] },
+    ]
+  },
+  vllm: {
+    title: 'vLLM',
+    tag: 'LOCAL BACKEND', tagColor: '#8a4a4a',
+    file: null,
+    sections: [
+      { h: 'URL', p: '<code>http://localhost:8080</code>' },
+      { h: 'Prefix', p: '<code>vllm/*</code> (e.g., vllm/mistral, vllm/llama-70b)' },
+      { h: 'Use case', p: 'High-throughput local inference with GPU. Useful for serving large models.' },
+    ]
+  },
+  openclawgw: {
+    title: 'OpenClaw Gateway',
+    tag: 'LOCAL BACKEND', tagColor: '#8a4a4a',
+    file: null,
+    sections: [
+      { h: 'URL', p: '<code>http://localhost:3000</code>' },
+      { h: 'Prefix', p: '<code>openclaw/*</code> (e.g., openclaw/agent)' },
+      { h: 'What it is', p: 'OpenClaw\'s own gateway API. Allows other services to use OpenClaw as an AI backend through this proxy.' },
+      { h: 'Timeout', p: '120s (longer because agent tasks can take time).' },
+    ]
+  },
+};
+
+function showDetail(id) {
+  const d = details[id];
+  if (!d) return;
+  // Highlight box
+  document.querySelectorAll('.box').forEach(b => b.classList.remove('active'));
+  document.getElementById(id)?.classList.add('active');
+
+  let html = `<h2>${d.title}</h2>`;
+  html += `<span class="tag" style="background:${d.tagColor}">${d.tag}</span>`;
+  if (d.file) html += `<p style="font-size:12px;color:#8b949e;margin-bottom:16px">📁 ${d.file}</p>`;
+
+  d.sections.forEach(s => {
+    html += `<div class="section"><h3>${s.h}</h3>`;
+    if (s.p) html += `<p>${s.p}</p>`;
+    if (s.list) {
+      html += '<ul>';
+      s.list.forEach(li => html += `<li>${li}</li>`);
+      html += '</ul>';
+    }
+    html += '</div>';
+  });
+
+  document.getElementById('detailContent').innerHTML = html;
+  document.getElementById('detailPanel').classList.add('open');
+  document.getElementById('overlay').classList.add('open');
+}
+
+function closeDetail() {
+  document.getElementById('detailPanel').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+  document.querySelectorAll('.box').forEach(b => b.classList.remove('active'));
+}
+
+// ── Flow animation ──
+function runAnimation() {
+  const order = ['openclaw','curl','webapp','nginx','sizelimit','auth','ratelimit','fastapi','backends','security','logger','openai','anthropic','google','ollama','vllm','openclawgw'];
+  document.querySelectorAll('.box').forEach(b => { b.style.opacity = '0.2'; b.style.transition = 'opacity .3s'; });
+  order.forEach((id, i) => {
+    setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) { el.style.opacity = '1'; el.classList.add('active'); }
+      if (i > 0) {
+        const prev = document.getElementById(order[i-1]);
+        if (prev) prev.classList.remove('active');
+      }
+      if (i === order.length - 1) {
+        setTimeout(() => {
+          document.querySelectorAll('.box').forEach(b => { b.style.opacity = '1'; b.classList.remove('active'); });
+        }, 600);
+      }
+    }, i * 300);
+  });
+}
+
+// Draw arrows on load and resize
+window.addEventListener('load', drawArrows);
+window.addEventListener('resize', drawArrows);
+</script>
+</body>
+</html>
