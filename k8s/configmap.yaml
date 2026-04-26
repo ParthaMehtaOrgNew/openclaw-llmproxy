@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openclaw-proxy-config
+  namespace: openclaw
+data:
+  RATE_LIMIT_RPM: "60"
+  MAX_REQUEST_SIZE_MB: "10"
+  CACHE_TTL_S: "3600"
+  CACHE_MAX_ENTRIES: "1000"
+  SECURITY_PII_MODE: "log"
+  SECURITY_INJECTION_MODE: "log"
+  LOG_REDACT_BODIES: "false"
+  OLLAMA_BASE_URL: "http://ollama-service:11434"
+
+  backends.json: |
+    {
+      "default": {
+        "url": "http://ollama-service:11434",
+        "name": "ollama",
+        "timeout_s": 60
+      },
+      "routes": {
+        "gpt-": {
+          "url": "https://api.openai.com",
+          "name": "openai",
+          "timeout_s": 30,
+          "pricing": {"prompt": 0.03, "completion": 0.06},
+          "monthly_budget_usd": 100.0,
+          "fallback": ["ollama"]
+        },
+        "claude-": {
+          "url": "https://api.anthropic.com",
+          "name": "anthropic",
+          "timeout_s": 30,
+          "pricing": {"prompt": 0.015, "completion": 0.075},
+          "monthly_budget_usd": 100.0,
+          "fallback": ["ollama"]
+        },
+        "gemini-": {
+          "url": "https://generativelanguage.googleapis.com",
+          "name": "google",
+          "timeout_s": 30,
+          "pricing": {"prompt": 0.00125, "completion": 0.005},
+          "monthly_budget_usd": 50.0
+        }
+      }
+    }

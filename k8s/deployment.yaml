@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openclaw-proxy
+  namespace: openclaw
+  labels:
+    app: openclaw-proxy
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: openclaw-proxy
+  template:
+    metadata:
+      labels:
+        app: openclaw-proxy
+    spec:
+      containers:
+        - name: proxy
+          image: openclaw-llmproxy:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: openclaw-proxy-config
+            - secretRef:
+                name: openclaw-proxy-secrets
+          volumeMounts:
+            - name: backends-config
+              mountPath: /app/backends.json
+              subPath: backends.json
+            - name: logs
+              mountPath: /app/logs
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 10
+      volumes:
+        - name: backends-config
+          configMap:
+            name: openclaw-proxy-config
+            items:
+              - key: backends.json
+                path: backends.json
+        - name: logs
+          emptyDir: {}

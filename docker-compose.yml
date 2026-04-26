@@ -1,0 +1,35 @@
+version: "3.8"
+
+services:
+  proxy:
+    build: .
+    ports:
+      - "8005:8000"
+    environment:
+      - PROXY_API_KEY=${PROXY_API_KEY:-}
+      - RATE_LIMIT_RPM=${RATE_LIMIT_RPM:-60}
+      - MAX_REQUEST_SIZE_MB=${MAX_REQUEST_SIZE_MB:-10}
+      - CACHE_TTL_S=${CACHE_TTL_S:-3600}
+      - CACHE_MAX_ENTRIES=${CACHE_MAX_ENTRIES:-1000}
+      - SECURITY_PII_MODE=${SECURITY_PII_MODE:-log}
+      - SECURITY_INJECTION_MODE=${SECURITY_INJECTION_MODE:-log}
+      - SECURITY_WEBHOOK_URL=${SECURITY_WEBHOOK_URL:-}
+      - LOG_REDACT_BODIES=${LOG_REDACT_BODIES:-false}
+      - OLLAMA_BASE_URL=http://ollama:11434
+    volumes:
+      - ./logs:/app/logs
+      - ./backends.json:/app/backends.json:ro
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
