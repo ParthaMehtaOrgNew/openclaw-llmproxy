@@ -61,6 +61,30 @@ def scan_inbound(messages: list[dict]) -> dict:
     return report
 
 
+def redact_messages(messages: list[dict]) -> list[dict]:
+    """Return a copy of messages with PII redacted."""
+    if not _load():
+        return messages
+
+    redacted = []
+    for msg in messages:
+        content = msg.get("content", "")
+        if content:
+            result = _pii_detector.scan_and_redact(content)
+            redacted.append({**msg, "content": result.redacted if hasattr(result, "redacted") else content})
+        else:
+            redacted.append(msg)
+    return redacted
+
+
+def redact_text(text: str) -> str:
+    """Redact PII from a text string."""
+    if not _load():
+        return text
+    result = _pii_detector.scan_and_redact(text)
+    return result.redacted if hasattr(result, "redacted") else text
+
+
 def scan_outbound(content: str) -> dict:
     """Scan outbound response content for PII leakage. Returns a report dict."""
     if not _load():

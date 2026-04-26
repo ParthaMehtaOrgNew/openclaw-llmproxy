@@ -5,17 +5,19 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 
+from proxy.alerts import alert_pii_detected, alert_injection_detected
 from proxy.auth import AuthMiddleware
 from proxy import cache
-from proxy.config import OLLAMA_BASE_URL
+from proxy.config import OLLAMA_BASE_URL, SECURITY_PII_MODE, SECURITY_INJECTION_MODE
 from proxy.dashboard import router as dashboard_router
 from proxy.fallback import get_fallback_chain, is_fallback_eligible
+from proxy.keymanager import inject_backend_key
 from proxy.loadbalancer import record_latency
 from proxy.logger import log_request
 from proxy.ratelimit import RateLimitMiddleware
 from proxy.retry import request_with_retry, get_backend_timeout
 from proxy.router import resolve as resolve_backend
-from proxy.security import scan_inbound, scan_outbound
+from proxy.security import scan_inbound, scan_outbound, redact_messages, redact_text
 from proxy.sizelimit import SizeLimitMiddleware
 from proxy import spend
 from proxy.translators import translate_request, translate_response, translate_stream_chunk, needs_translation
@@ -89,6 +91,45 @@ async def proxy(request: Request, path: str):
     inbound_scan = None
     if request_body and isinstance(request_body, dict) and "messages" in request_body:
         inbound_scan = scan_inbound(request_body["messages"])
+
+    # Security enforcement
+    if inbound_scan and inbound_scan.get("available"):
+        # Injection enforcement
+        if inbound_scan.get("injection") and SECURITY_INJECTION_MODE == "block":
+            await alert_injection_detected(backend_name, model, inbound_scan.get("injection_patterns", []))
+            log_request(method=request.method, path=f"/{path}", status_code=403,
+                        latency_ms=0, request_body=request_body, inbound_scan=inbound_scan,
+                        backend=backend_name)
+            return JSONResponse(status_code=403, content={
+                "error": "Request blocked: prompt injection detected",
+                "patterns": inbound_scan.get("injection_patterns", []),
+            })
+
+        # PII enforcement
+        if inbound_scan.get("pii"):
+            if SECURITY_PII_MODE == "block":
+                await alert_pii_detected(backend_name, model, inbound_scan["pii"], "inbound")
+                log_request(method=request.method, path=f"/{path}", status_code=403,
+                            latency_ms=0, request_body=request_body, inbound_scan=inbound_scan,
+                            backend=backend_name)
+                return JSONResponse(status_code=403, content={
+                    "error": "Request blocked: PII detected in prompt",
+                    "pii_types": inbound_scan["pii"],
+                })
+            elif SECURITY_PII_MODE == "redact":
+                request_body["messages"] = redact_messages(request_body["messages"])
+                body = json.dumps(request_body).encode()
+                await alert_pii_detected(backend_name, model, inbound_scan["pii"], "inbound")
+            else:
+                # log mode — fire alert but don't block
+                if inbound_scan["pii"]:
+                    await alert_pii_detected(backend_name, model, inbound_scan["pii"], "inbound")
+
+        if inbound_scan.get("injection") and SECURITY_INJECTION_MODE == "log":
+            await alert_injection_detected(backend_name, model, inbound_scan.get("injection_patterns", []))
+
+    # Inject backend-specific API key
+    headers = inject_backend_key(headers, backend_name)
 
     is_streaming = (
         request_body
@@ -191,6 +232,9 @@ async def _handle_buffered_with_fallback(request, path, headers, body,
                 content = choice.get("message", {}).get("content", "")
                 if content:
                     outbound_scan = scan_outbound(content)
+                    # Outbound PII enforcement
+                    if outbound_scan.get("pii") and SECURITY_PII_MODE == "redact":
+                        choice["message"]["content"] = redact_text(content)
                     break
 
         # Calculate spend

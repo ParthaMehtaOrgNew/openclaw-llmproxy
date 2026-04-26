@@ -15,6 +15,36 @@ class SpendTracker:
         self._by_model: dict[str, float] = defaultdict(float)
         self._daily: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         self._monthly: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+        self._load_from_disk()
+
+    def _load_from_disk(self):
+        """Reload cumulative spend from spend.jsonl on startup."""
+        if not os.path.exists(SPEND_FILE):
+            return
+        try:
+            with open(SPEND_FILE) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    backend = entry.get("backend", "unknown")
+                    model = entry.get("model")
+                    cost = entry.get("cost_usd", 0)
+                    ts = entry.get("timestamp", "")
+                    self._by_backend[backend] += cost
+                    if model:
+                        self._by_model[model] += cost
+                    if ts:
+                        day = ts[:10]
+                        month = ts[:7]
+                        self._daily[day][backend] += cost
+                        self._monthly[month][backend] += cost
+        except OSError:
+            pass
 
     def get_pricing(self, backend_name: str) -> dict | None:
         backends = _load_backends()

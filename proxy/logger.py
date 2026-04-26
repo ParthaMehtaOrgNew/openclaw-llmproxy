@@ -3,6 +3,8 @@ import os
 import time
 from datetime import datetime, timezone
 
+from proxy.config import LOG_REDACT_BODIES
+
 LOG_DIR = os.getenv("LOG_DIR", os.path.join(os.path.dirname(__file__), "..", "logs"))
 LOG_FILE = os.path.join(LOG_DIR, "requests.jsonl")
 
@@ -56,6 +58,15 @@ def log_request(
         "cache_hit": cache_hit,
         "cost_usd": cost_usd,
     }
+
+    # Include request/response bodies unless redaction is enabled
+    if not LOG_REDACT_BODIES:
+        if request_body and isinstance(request_body, dict):
+            entry["request_messages"] = request_body.get("messages")
+        if response_body and isinstance(response_body, dict):
+            choices = response_body.get("choices", [])
+            if choices:
+                entry["response_content"] = choices[0].get("message", {}).get("content")
 
     with open(LOG_FILE, "a") as f:
         f.write(json.dumps(entry) + "\n")

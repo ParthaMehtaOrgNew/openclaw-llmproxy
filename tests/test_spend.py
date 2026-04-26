@@ -44,15 +44,17 @@ class TestSpendTracker:
                 assert tracker.calculate_cost("ollama", 100, 50) is None
 
     def test_spend_summary(self):
-        tracker = SpendTracker()
-        tracker.record("openai", "gpt-4", 0.05)
-        tracker.record("openai", "gpt-4", 0.03)
-        tracker.record("anthropic", "claude-3", 0.02)
-        summary = tracker.get_summary()
-        assert summary["total_usd"] == 0.1
-        assert summary["by_backend"]["openai"] == 0.08
-        assert summary["by_backend"]["anthropic"] == 0.02
-        assert summary["by_model"]["gpt-4"] == 0.08
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("proxy.spend.SPEND_FILE", os.path.join(tmp, "spend.jsonl")):
+                tracker = SpendTracker()
+                tracker.record("openai", "gpt-4", 0.05)
+                tracker.record("openai", "gpt-4", 0.03)
+                tracker.record("anthropic", "claude-3", 0.02)
+                summary = tracker.get_summary()
+                assert summary["total_usd"] == 0.1
+                assert summary["by_backend"]["openai"] == 0.08
+                assert summary["by_backend"]["anthropic"] == 0.02
+                assert summary["by_model"]["gpt-4"] == 0.08
 
     def test_spend_endpoint(self):
         client = TestClient(app)
@@ -74,7 +76,8 @@ class TestSpendTracker:
                     }
                 },
             })
-            with patch("proxy.router.BACKENDS_FILE", path):
+            with patch("proxy.router.BACKENDS_FILE", path), \
+                 patch("proxy.spend.SPEND_FILE", os.path.join(tmp, "spend.jsonl")):
                 tracker = SpendTracker()
                 assert not tracker.check_budget("openai")
                 tracker.record("openai", "gpt-4", 0.01)
