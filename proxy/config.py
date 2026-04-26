@@ -18,3 +18,7 @@ SECURITY_WEBHOOK_URL = os.getenv("SECURITY_WEBHOOK_URL", "")
 
 # Log redaction: if true, don't log full request/response bodies
 LOG_REDACT_BODIES = os.getenv("LOG_REDACT_BODIES", "false").lower() == "true"
+
+# Scalability: Redis + PostgreSQL (empty = use in-memory fallback)
+REDIS_URL = os.getenv("REDIS_URL", "")
+DATABASE_URL = os.getenv("DATABASE_URL", "")

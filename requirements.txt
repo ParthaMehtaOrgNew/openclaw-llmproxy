@@ -2,3 +2,5 @@ fastapi
 uvicorn
 httpx
 pytest
+redis
+psycopg2-binary

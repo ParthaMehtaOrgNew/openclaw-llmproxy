@@ -14,11 +14,15 @@ services:
       - SECURITY_WEBHOOK_URL=${SECURITY_WEBHOOK_URL:-}
       - LOG_REDACT_BODIES=${LOG_REDACT_BODIES:-false}
       - OLLAMA_BASE_URL=http://ollama:11434
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://openclaw:openclaw@postgres:5432/openclaw}
     volumes:
       - ./logs:/app/logs
       - ./backends.docker.json:/app/backends.json:ro
     depends_on:
       - ollama
+      - redis
+      - postgres
     restart: unless-stopped
 
   ollama:
@@ -27,6 +31,26 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: openclaw
+      POSTGRES_PASSWORD: openclaw
+      POSTGRES_DB: openclaw
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
   monitor:
@@ -41,3 +65,5 @@ services:
 
 volumes:
   ollama_data:
+  redis_data:
+  postgres_data:

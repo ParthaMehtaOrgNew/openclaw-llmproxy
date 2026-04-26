@@ -1,12 +1,54 @@
 import json
+import logging
 import os
 from collections import defaultdict
 from datetime import datetime, timezone
 
+from proxy.config import DATABASE_URL
 from proxy.logger import LOG_DIR
 from proxy.router import _load_backends
 
+logger = logging.getLogger("llmproxy.spend")
+
 SPEND_FILE = os.path.join(LOG_DIR, "spend.jsonl")
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL spend tracker (production)
+# ---------------------------------------------------------------------------
+
+_pg_pool = None
+
+
+def _init_pg():
+    global _pg_pool
+    if _pg_pool is not None or not DATABASE_URL:
+        return
+    try:
+        import psycopg2
+        from psycopg2 import pool
+        _pg_pool = pool.ThreadedConnectionPool(1, 5, DATABASE_URL)
+        conn = _pg_pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS spend (
+                        id SERIAL PRIMARY KEY,
+                        timestamp TIMESTAMPTZ DEFAULT NOW(),
+                        backend VARCHAR(50),
+                        model VARCHAR(100),
+                        cost_usd FLOAT
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_spend_backend ON spend(backend)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_spend_timestamp ON spend(timestamp)")
+            conn.commit()
+        finally:
+            _pg_pool.putconn(conn)
+        logger.info("Spend tracker using PostgreSQL")
+    except Exception as e:
+        logger.warning("PostgreSQL unavailable for spend (%s), falling back to in-memory", e)
+        _pg_pool = None
 
 
 class SpendTracker:
@@ -18,7 +60,6 @@ class SpendTracker:
         self._load_from_disk()
 
     def _load_from_disk(self):
-        """Reload cumulative spend from spend.jsonl on startup."""
         if not os.path.exists(SPEND_FILE):
             return
         try:
@@ -74,7 +115,25 @@ class SpendTracker:
         self._daily[today][backend_name] += cost_usd
         self._monthly[month][backend_name] += cost_usd
 
-        # Persist
+        # Persist to PostgreSQL or JSONL
+        _init_pg()
+        if _pg_pool:
+            try:
+                conn = _pg_pool.getconn()
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "INSERT INTO spend (backend, model, cost_usd) VALUES (%s, %s, %s)",
+                            (backend_name, model, cost_usd),
+                        )
+                    conn.commit()
+                finally:
+                    _pg_pool.putconn(conn)
+                return
+            except Exception as e:
+                logger.warning("Failed to write spend to PostgreSQL: %s", e)
+
+        # JSONL fallback
         try:
             os.makedirs(LOG_DIR, exist_ok=True)
             entry = {

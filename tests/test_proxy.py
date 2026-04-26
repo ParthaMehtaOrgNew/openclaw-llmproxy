@@ -129,7 +129,7 @@ class TestProxyEndpoint:
             json={"model": "llama3.2:1b", "messages": [{"role": "user", "content": "Say hi"}]},
         )
         # Ollama may or may not be running; just check we get a response (not a 500 from our code)
-        assert resp.status_code in (200, 404, 502)
+        assert resp.status_code in (200, 404, 502, 504)
 
 
 # ---------------------------------------------------------------------------

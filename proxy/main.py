@@ -24,6 +24,10 @@ from proxy.translators import translate_request, translate_response, translate_s
 
 app = FastAPI(title="OpenClaw LLM Proxy")
 
+# Shared connection limits for backend requests
+_HTTP_LIMITS = httpx.Limits(max_connections=100, max_keepalive_connections=20)
+
+
 # Middleware order: SizeLimit (outermost) → Auth → RateLimit (innermost)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(AuthMiddleware)
@@ -191,7 +195,7 @@ async def _handle_buffered_with_fallback(request, path, headers, body,
         start = time.perf_counter()
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(limits=_HTTP_LIMITS) as client:
                 response = await request_with_retry(
                     client, request.method, url, t_headers, send_body,
                     request.query_params, timeout_s,
