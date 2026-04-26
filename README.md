@@ -190,16 +190,28 @@ See `openclaw-config.example.json` for a full example with all provider options.
 | `SECURITY_INJECTION_MODE` | `log` | `log` or `block` (403 on injection attempts) |
 | `SECURITY_WEBHOOK_URL` | _(empty)_ | Webhook URL for security alerts (Slack, PagerDuty) |
 | `LOG_REDACT_BODIES` | `false` | Exclude request/response bodies from JSONL logs |
+| `REDIS_URL` | _(empty)_ | Redis URL for shared cache + rate limiting |
+| `REDIS_CLUSTER` | `false` | Use Redis Cluster client for ~1M+ req/s |
+| `DATABASE_URL` | _(empty)_ | PostgreSQL URL for persistent logs + spend |
+| `DATABASE_READ_URL` | _(empty)_ | PG read replica URL for dashboard queries |
+| `KAFKA_BOOTSTRAP_SERVERS` | _(empty)_ | Kafka brokers for async log writes (~500K+ req/s) |
+| `KAFKA_TOPIC` | `llmproxy.requests` | Kafka topic for log events |
 
 ## Deployment
 
 ### Docker Compose (recommended)
 
 ```bash
+# Standard (proxy + Ollama + Redis + PostgreSQL + Kafka + monitor)
 PROXY_API_KEY=your-key docker compose up -d
+
+# Extreme scale (Redis Cluster + PG read replica)
+PROXY_API_KEY=your-key REDIS_CLUSTER=true \
+  DATABASE_READ_URL=postgresql://user:pass@replica:5432/openclaw \
+  docker compose up -d
 ```
 
-Starts 3 containers: proxy (port 8005), Ollama (port 11434), and a background monitor that health-checks every 60 seconds.
+Starts 6 containers: proxy, Ollama, Redis, PostgreSQL, Kafka, and a background monitor.
 
 ### Kubernetes
 
@@ -249,14 +261,38 @@ python scripts/monitor.py --url http://localhost:8005 --api-key your-key --inter
 
 ## Architecture
 
-See the [interactive architecture diagram](docs/architecture.html) for a visual walkthrough of the full request flow — from client through middleware, proxy core, and out to backends.
+See the [interactive architecture diagram](docs/architecture.html) for a visual walkthrough.
 
+### Request Flow
 ```
-Client → Nginx (TLS) → Size Limit → Auth → Rate Limit → Cache Check
-                                                             ↓ (miss)
-                                              Budget Check → FastAPI Proxy → Backend
-                                                       ↓         ↕         ↕    ↓ (fail)
-                                                    Spend     Logger   Security  Fallback Chain
+Client → Nginx/K8s Ingress (TLS)
+  → Size Limit → Auth → Rate Limit (Redis) → Cache Check (Redis)
+      ↓ (miss)
+  Budget Check → API Translation → FastAPI Proxy → Load Balancer → Backend
+      ↓               ↕                ↕              ↕           ↓ (fail)
+   Spend (PG)     Key Inject       Security        Logger      Fallback Chain
+                                   Scanner       (Kafka→PG→JSONL)
+```
+
+### Infrastructure Tiers
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Dev (zero config)          ~200 req/s                       │
+│   uvicorn + in-memory state + JSONL logs                    │
+├─────────────────────────────────────────────────────────────┤
+│ Production                 ~5K-15K req/s                    │
+│   + Redis (shared cache + rate limiting)                    │
+│   + PostgreSQL (persistent logs + spend)                    │
+├─────────────────────────────────────────────────────────────┤
+│ High Scale                 ~50K-100K req/s                  │
+│   + K8s HPA (2→10 pods)                                    │
+│   + Multiple uvicorn workers                                │
+├─────────────────────────────────────────────────────────────┤
+│ Extreme Scale              ~500K-1M+ req/s                  │
+│   + Kafka (async non-blocking log writes)                   │
+│   + Redis Cluster (sharded cache/rate limiting)             │
+│   + PG Read Replicas (dashboard queries off primary)        │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ## Tests
