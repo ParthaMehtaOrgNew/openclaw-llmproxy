@@ -1,0 +1,14 @@
+[Unit]
+Description=OpenClaw LLM Proxy Monitor
+After=network.target openclaw-proxy.service
+
+[Service]
+Type=simple
+User=openclaw
+WorkingDirectory=/opt/openclaw-llmproxy
+ExecStart=/opt/openclaw-llmproxy/venv/bin/python scripts/monitor.py --url http://localhost:8000 --interval 60 --api-key changeme
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

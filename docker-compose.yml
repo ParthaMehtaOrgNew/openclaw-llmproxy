@@ -31,5 +31,15 @@ services:
       - ollama_data:/root/.ollama
     restart: unless-stopped
 
+  monitor:
+    build: .
+    entrypoint: ["python", "scripts/monitor.py"]
+    command: ["--url", "http://proxy:8000", "--interval", "60", "--api-key", "${PROXY_API_KEY:-}"]
+    volumes:
+      - ./scripts:/app/scripts:ro
+    depends_on:
+      - proxy
+    restart: unless-stopped
+
 volumes:
   ollama_data:
