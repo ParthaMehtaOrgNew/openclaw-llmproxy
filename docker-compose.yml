@@ -16,7 +16,7 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
     volumes:
       - ./logs:/app/logs
-      - ./backends.json:/app/backends.json:ro
+      - ./backends.docker.json:/app/backends.json:ro
     depends_on:
       - ollama
     restart: unless-stopped

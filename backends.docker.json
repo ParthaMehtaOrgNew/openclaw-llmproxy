@@ -1,0 +1,42 @@
+{
+  "default": {
+    "url": "http://ollama:11434",
+    "name": "ollama",
+    "timeout_s": 60
+  },
+  "routes": {
+    "gpt-": {
+      "url": "https://api.openai.com",
+      "name": "openai",
+      "timeout_s": 30,
+      "pricing": {"prompt": 0.03, "completion": 0.06},
+      "monthly_budget_usd": 100.0,
+      "fallback": ["anthropic", "ollama"]
+    },
+    "claude-": {
+      "url": "https://api.anthropic.com",
+      "name": "anthropic",
+      "timeout_s": 30,
+      "pricing": {"prompt": 0.015, "completion": 0.075},
+      "monthly_budget_usd": 100.0,
+      "fallback": ["openai", "ollama"]
+    },
+    "gemini-": {
+      "url": "https://generativelanguage.googleapis.com",
+      "name": "google",
+      "timeout_s": 30,
+      "pricing": {"prompt": 0.00125, "completion": 0.005},
+      "monthly_budget_usd": 50.0
+    },
+    "vllm/": {
+      "url": "http://localhost:8080",
+      "name": "vllm",
+      "timeout_s": 60
+    },
+    "openclaw/": {
+      "url": "http://localhost:3000",
+      "name": "openclaw",
+      "timeout_s": 120
+    }
+  }
+}
