@@ -22,3 +22,9 @@ LOG_REDACT_BODIES = os.getenv("LOG_REDACT_BODIES", "false").lower() == "true"
 # Scalability: Redis + PostgreSQL (empty = use in-memory fallback)
 REDIS_URL = os.getenv("REDIS_URL", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+# Extreme scale: Kafka, Redis Cluster, PG read replicas
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "")
+KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "llmproxy.requests")
+REDIS_CLUSTER = os.getenv("REDIS_CLUSTER", "false").lower() == "true"
+DATABASE_READ_URL = os.getenv("DATABASE_READ_URL", "")

@@ -15,7 +15,11 @@ services:
       - LOG_REDACT_BODIES=${LOG_REDACT_BODIES:-false}
       - OLLAMA_BASE_URL=http://ollama:11434
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - REDIS_CLUSTER=${REDIS_CLUSTER:-false}
       - DATABASE_URL=${DATABASE_URL:-postgresql://openclaw:openclaw@postgres:5432/openclaw}
+      - DATABASE_READ_URL=${DATABASE_READ_URL:-}
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      - KAFKA_TOPIC=${KAFKA_TOPIC:-llmproxy.requests}
     volumes:
       - ./logs:/app/logs
       - ./backends.docker.json:/app/backends.json:ro
@@ -53,6 +57,24 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: openclaw-llmproxy-kafka-001
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    restart: unless-stopped
+
   monitor:
     build: .
     entrypoint: ["python", "scripts/monitor.py"]
@@ -67,3 +89,4 @@ volumes:
   ollama_data:
   redis_data:
   postgres_data:
+  kafka_data:

@@ -7,7 +7,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from proxy.config import REDIS_URL
+from proxy.config import REDIS_URL, REDIS_CLUSTER
 
 logger = logging.getLogger("llmproxy.ratelimit")
 
@@ -37,9 +37,13 @@ class MemoryRateLimiter:
 # ---------------------------------------------------------------------------
 
 class RedisRateLimiter:
-    def __init__(self, redis_url: str):
-        import redis
-        self._redis = redis.from_url(redis_url)
+    def __init__(self, redis_url: str, cluster: bool = False):
+        import redis as redis_lib
+        if cluster:
+            from redis.cluster import RedisCluster
+            self._redis = RedisCluster.from_url(redis_url)
+        else:
+            self._redis = redis_lib.from_url(redis_url)
 
     def is_rate_limited(self, key: str, rpm: int) -> bool:
         redis_key = f"llmproxy:rl:{key}"
@@ -64,9 +68,10 @@ class RedisRateLimiter:
 def _create_limiter():
     if REDIS_URL:
         try:
-            rl = RedisRateLimiter(REDIS_URL)
+            rl = RedisRateLimiter(REDIS_URL, cluster=REDIS_CLUSTER)
             rl._redis.ping()
-            logger.info("Rate limiter using Redis at %s", REDIS_URL)
+            mode = "Redis Cluster" if REDIS_CLUSTER else "Redis"
+            logger.info("Rate limiter using %s at %s", mode, REDIS_URL)
             return rl
         except Exception as e:
             logger.warning("Redis unavailable (%s), falling back to memory rate limiter", e)

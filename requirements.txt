@@ -4,3 +4,4 @@ httpx
 pytest
 redis
 psycopg2-binary
+confluent-kafka

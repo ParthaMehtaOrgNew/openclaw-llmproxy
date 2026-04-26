@@ -4,7 +4,7 @@ import os
 import time
 from datetime import datetime, timezone
 
-from proxy.config import LOG_REDACT_BODIES, DATABASE_URL
+from proxy.config import LOG_REDACT_BODIES, DATABASE_URL, DATABASE_READ_URL, KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC
 
 logger = logging.getLogger("llmproxy.logger")
 
@@ -103,6 +103,117 @@ def _log_to_pg(entry: dict):
 
 
 # ---------------------------------------------------------------------------
+# Kafka async log writer (~500K+ req/s)
+# ---------------------------------------------------------------------------
+
+_kafka_producer = None
+
+
+def _init_kafka():
+    global _kafka_producer
+    if _kafka_producer is not None or not KAFKA_BOOTSTRAP_SERVERS:
+        return
+    try:
+        from confluent_kafka import Producer
+        _kafka_producer = Producer({
+            "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
+            "queue.buffering.max.messages": 100000,
+            "queue.buffering.max.ms": 100,
+            "batch.num.messages": 1000,
+        })
+        logger.info("Logger using Kafka at %s (topic: %s)", KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC)
+    except Exception as e:
+        logger.warning("Kafka unavailable (%s), falling back to sync logging", e)
+        _kafka_producer = None
+
+
+def _log_to_kafka(entry: dict) -> bool:
+    if not _kafka_producer:
+        return False
+    try:
+        _kafka_producer.produce(
+            KAFKA_TOPIC,
+            value=json.dumps(entry).encode("utf-8"),
+            callback=lambda err, msg: logger.warning("Kafka delivery failed: %s", err) if err else None,
+        )
+        _kafka_producer.poll(0)
+        return True
+    except Exception as e:
+        logger.warning("Failed to produce to Kafka: %s", e)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL read replica (for dashboard/log queries)
+# ---------------------------------------------------------------------------
+
+_pg_read_pool = None
+
+
+def _init_pg_read():
+    global _pg_read_pool
+    if _pg_read_pool is not None:
+        return
+    read_url = DATABASE_READ_URL or DATABASE_URL
+    if not read_url:
+        return
+    try:
+        import psycopg2
+        from psycopg2 import pool
+        _pg_read_pool = pool.ThreadedConnectionPool(1, 10, read_url)
+        if DATABASE_READ_URL:
+            logger.info("Read queries using PG replica at %s",
+                        DATABASE_READ_URL.split("@")[-1] if "@" in DATABASE_READ_URL else DATABASE_READ_URL)
+    except Exception as e:
+        logger.warning("PG read replica unavailable (%s)", e)
+        _pg_read_pool = None
+
+
+def query_logs_pg(backend=None, model=None, since=None, limit=50) -> list[dict] | None:
+    """Query logs from PostgreSQL (primary or read replica). Returns None if PG unavailable."""
+    _init_pg()
+    _init_pg_read()
+    pool = _pg_read_pool or _pg_pool
+    if not pool:
+        return None
+    try:
+        conn = pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                query = "SELECT timestamp, method, path, backend, model, status_code, latency_ms, prompt_tokens, completion_tokens, total_tokens, inbound_scan, outbound_scan, cache_hit, cost_usd FROM requests WHERE 1=1"
+                params = []
+                if backend:
+                    query += " AND backend = %s"
+                    params.append(backend)
+                if model:
+                    query += " AND model = %s"
+                    params.append(model)
+                if since:
+                    query += " AND timestamp >= %s"
+                    params.append(since)
+                query += " ORDER BY timestamp DESC LIMIT %s"
+                params.append(limit)
+                cur.execute(query, params)
+                columns = [desc[0] for desc in cur.description]
+                rows = cur.fetchall()
+                entries = []
+                for row in rows:
+                    entry = dict(zip(columns, row))
+                    entry["timestamp"] = entry["timestamp"].isoformat() if entry.get("timestamp") else None
+                    if isinstance(entry.get("inbound_scan"), str):
+                        entry["inbound_scan"] = json.loads(entry["inbound_scan"])
+                    if isinstance(entry.get("outbound_scan"), str):
+                        entry["outbound_scan"] = json.loads(entry["outbound_scan"])
+                    entries.append(entry)
+                return list(reversed(entries))
+        finally:
+            pool.putconn(conn)
+    except Exception as e:
+        logger.warning("Failed to query logs from PG: %s", e)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Public interface
 # ---------------------------------------------------------------------------
 
@@ -159,7 +270,11 @@ def log_request(
             if choices:
                 entry["response_content"] = choices[0].get("message", {}).get("content")
 
-    # Try PostgreSQL first, fall back to JSONL
+    # Priority: Kafka (async, non-blocking) → PostgreSQL (sync) → JSONL (fallback)
+    _init_kafka()
+    if _kafka_producer and _log_to_kafka(entry):
+        return
+
     _init_pg()
     if _pg_pool and _log_to_pg(entry):
         return

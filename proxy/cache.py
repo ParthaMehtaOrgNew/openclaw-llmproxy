@@ -4,7 +4,7 @@ import logging
 import time
 from collections import OrderedDict
 
-from proxy.config import CACHE_TTL_S, CACHE_MAX_ENTRIES, REDIS_URL
+from proxy.config import CACHE_TTL_S, CACHE_MAX_ENTRIES, REDIS_URL, REDIS_CLUSTER
 
 logger = logging.getLogger("llmproxy.cache")
 
@@ -63,9 +63,13 @@ class MemoryCache:
 # ---------------------------------------------------------------------------
 
 class RedisCache:
-    def __init__(self, redis_url: str, ttl_s: int = CACHE_TTL_S):
-        import redis
-        self._redis = redis.from_url(redis_url, decode_responses=True)
+    def __init__(self, redis_url: str, ttl_s: int = CACHE_TTL_S, cluster: bool = False):
+        import redis as redis_lib
+        if cluster:
+            from redis.cluster import RedisCluster
+            self._redis = RedisCluster.from_url(redis_url, decode_responses=True)
+        else:
+            self._redis = redis_lib.from_url(redis_url, decode_responses=True)
         self._ttl_s = ttl_s
         self._prefix = "llmproxy:cache:"
         self._hits_key = "llmproxy:cache_hits"
@@ -106,9 +110,10 @@ class RedisCache:
 def _create_cache():
     if REDIS_URL:
         try:
-            c = RedisCache(REDIS_URL)
+            c = RedisCache(REDIS_URL, cluster=REDIS_CLUSTER)
             c._redis.ping()
-            logger.info("Cache using Redis at %s", REDIS_URL)
+            mode = "Redis Cluster" if REDIS_CLUSTER else "Redis"
+            logger.info("Cache using %s at %s", mode, REDIS_URL)
             return c
         except Exception as e:
             logger.warning("Redis unavailable (%s), falling back to memory cache", e)

@@ -16,6 +16,13 @@ async def get_logs(
     limit: int = Query(50, ge=1, le=1000),
     since: str | None = Query(None, description="ISO date, e.g. 2026-04-25"),
 ):
+    # Try PostgreSQL read replica first (fast indexed queries)
+    from proxy.logger import query_logs_pg
+    pg_results = query_logs_pg(backend=backend, model=model, since=since, limit=limit)
+    if pg_results is not None:
+        return {"entries": pg_results, "total": len(pg_results), "source": "postgresql"}
+
+    # Fall back to JSONL file scan
     if not os.path.exists(LOG_FILE):
         return {"entries": [], "total": 0}
 
