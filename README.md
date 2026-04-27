@@ -26,6 +26,11 @@ Built for [OpenClaw](https://github.com/ParthaMehtaOrg), the open-source autonom
 - **Spend tracking & budgets** — Per-backend cost calculation, cumulative tracking, `GET /spend` endpoint, and monthly budget enforcement (returns 402 when exceeded).
 - **Load balancing** — Round-robin, random, or least-latency strategies across multiple URLs per backend.
 - **Live web dashboard** — `GET /dashboard` serves a real-time HTML dashboard with request count, latency, error rate, cache stats, and spend by backend.
+- **Prometheus /metrics** — Prometheus-compatible metrics endpoint for Grafana/Datadog. Request counts, latency histograms, token usage, spend, cache hits, security events.
+- **Multi-tenancy** — Per-team API keys with own rate limits, budgets, and backend/model restrictions via `tenants.json`.
+- **Request tracing** — `X-Request-Id` correlation IDs on every request/response for distributed tracing (Jaeger, Datadog).
+- **Helm chart** — One-command Kubernetes deployment: `helm install openclaw ./helm/openclaw-proxy`.
+- **Python SDK** — `from sdk import OpenClawClient` — chat, stream, health, spend, logs, and `as_openai()` for drop-in OpenAI SDK compatibility.
 - **[Interactive architecture diagram](docs/architecture.html)** — clickable flow visualization of the full request pipeline.
 
 ## Routing
@@ -133,6 +138,30 @@ curl -H "Authorization: Bearer your-secret-key" http://localhost:8005/spend
 http://localhost:8005/dashboard
 ```
 
+**Python SDK:**
+```python
+from sdk import OpenClawClient
+
+client = OpenClawClient(base_url="http://localhost:8005", api_key="your-key")
+
+# Chat
+response = client.chat("gpt-4", "What is 2+2?")
+print(response.content)
+
+# Streaming
+for chunk in client.stream("llama3.2:1b", "Count to 5"):
+    print(chunk, end="")
+
+# Works with OpenAI SDK too
+openai = client.as_openai()
+resp = openai.chat.completions.create(model="gpt-4", messages=[...])
+```
+
+**Prometheus metrics:**
+```
+http://localhost:8005/metrics
+```
+
 ## OpenClaw Integration
 
 This proxy is designed to sit between OpenClaw and its LLM providers. Instead of configuring each provider separately in OpenClaw, point it at the proxy and let the router handle the rest.
@@ -172,6 +201,32 @@ See `openclaw-config.example.json` for a full example with all provider options.
 - Automatic fallback to alternate providers if primary fails
 - Response caching to reduce costs on repeated queries
 - Spend tracking and budget alerts per backend
+
+## Multi-Tenancy
+
+For enterprises with multiple teams, create `tenants.json` (see `tenants.example.json`):
+
+```json
+{
+  "tenants": {
+    "team-alpha-key-xxx": {
+      "name": "Team Alpha",
+      "rate_limit_rpm": 100,
+      "monthly_budget_usd": 500.0,
+      "allowed_backends": ["openai", "anthropic", "ollama"],
+      "allowed_models": ["gpt-4", "claude-3-opus", "llama3.2:1b"]
+    },
+    "team-beta-key-yyy": {
+      "name": "Team Beta",
+      "rate_limit_rpm": 30,
+      "monthly_budget_usd": 50.0,
+      "allowed_backends": ["ollama"]
+    }
+  }
+}
+```
+
+Each team gets their own API key, rate limit, budget, and backend/model restrictions. When `tenants.json` exists, it overrides the single `PROXY_API_KEY`.
 
 ## Environment Variables
 
@@ -213,7 +268,17 @@ PROXY_API_KEY=your-key REDIS_CLUSTER=true \
 
 Starts 6 containers: proxy, Ollama, Redis, PostgreSQL, Kafka, and a background monitor.
 
-### Kubernetes
+### Kubernetes (Helm)
+
+```bash
+helm install openclaw ./helm/openclaw-proxy \
+  --set proxy.apiKey=your-key \
+  --set proxy.securityPiiMode=redact
+```
+
+Prometheus auto-discovers the proxy via pod annotations — no scrape config needed.
+
+### Kubernetes (manifests)
 
 ```bash
 kubectl apply -f k8s/namespace.yaml
@@ -303,7 +368,7 @@ Client → Nginx/K8s Ingress (TLS)
 ## Tests
 
 ```bash
-python -m pytest tests/ -v    # 97 tests
+python -m pytest tests/ -v    # 113 tests
 ```
 
 ## Project Structure
@@ -327,13 +392,20 @@ python -m pytest tests/ -v    # 97 tests
 │   ├── security.py            # PII & injection scanning (block/redact/log)
 │   ├── alerts.py              # Webhook alerts for security events
 │   ├── keymanager.py          # Per-backend API key injection
+│   ├── metrics.py             # Prometheus /metrics endpoint
+│   ├── tenants.py             # Multi-tenancy (per-team keys/limits)
+│   ├── tracing.py             # X-Request-Id correlation IDs
 │   ├── translators/           # API format translation
 │   │   ├── __init__.py        # Translation dispatcher
 │   │   ├── anthropic.py       # OpenAI ↔ Anthropic Messages API
 │   │   └── gemini.py          # OpenAI ↔ Google Gemini API
 │   └── config.py              # Environment variable config
+├── sdk/                       # Python SDK
+│   ├── __init__.py
+│   └── client.py              # OpenClawClient (chat, stream, as_openai)
 ├── openclaw-config.example.json # Example OpenClaw config
-├── tests/                     # 97 tests
+├── tenants.example.json       # Example multi-tenant config
+├── tests/                     # 113 tests
 │   ├── test_proxy.py          # Core proxy tests (33)
 │   ├── test_loadbalancer.py   # Load balancing tests (6)
 │   ├── test_fallback.py       # Fallback chain tests (9)
@@ -341,14 +413,20 @@ python -m pytest tests/ -v    # 97 tests
 │   ├── test_spend.py          # Spend tracking tests (5)
 │   ├── test_dashboard_web.py  # Web dashboard tests (4)
 │   ├── test_translators.py    # API translation tests (21)
-│   └── test_enforcement.py    # Security enforcement tests (8)
+│   ├── test_enforcement.py    # Security enforcement tests (8)
+│   └── test_enterprise.py     # Metrics, tenants, tracing, SDK, Helm (16)
 ├── scripts/
 │   ├── smoke_test.sh          # Post-deploy verification (9 checks)
-│   └── monitor.py             # Continuous background health monitor
+│   ├── monitor.py             # Continuous background health monitor
+│   └── vps_setup.sh           # One-command VPS deploy (15 phases)
 ├── Dockerfile                 # Python 3.12-slim container
-├── docker-compose.yml         # Proxy + Ollama + Monitor stack
+├── docker-compose.yml         # Full stack (proxy+Ollama+Redis+PG+Kafka+monitor)
 ├── backends.docker.json       # Docker-specific backend URLs
-├── k8s/                       # Kubernetes manifests
+├── helm/openclaw-proxy/       # Helm chart
+│   ├── Chart.yaml
+│   ├── values.yaml
+│   └── templates/             # Deployment, Service, Secret, HPA
+├── k8s/                       # Raw Kubernetes manifests
 │   ├── namespace.yaml
 │   ├── secret.yaml
 │   ├── configmap.yaml
