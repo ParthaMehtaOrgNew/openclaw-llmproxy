@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; padding: 40px; background: #0a0d12; font-family: -apple-system, sans-serif; min-width: 1270px; }
+  h2 { color: #fff; font-size: 24px; margin-bottom: 24px; text-align: center; }
+  h2 span { color: #f85149; }
+  .terminal { background: #161b22; border: 1px solid #21262d; border-radius: 12px; max-width: 900px; margin: 0 auto; overflow: hidden; }
+  .bar { padding: 10px 16px; background: #0d1117; display: flex; gap: 6px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dr { background: #f85149; } .dy { background: #f0883e; } .dg { background: #3fb950; }
+  .body { padding: 20px 24px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 2; color: #8b949e; }
+  .p { color: #3fb950; } .c { color: #58a6ff; } .f { color: #f0883e; } .r { color: #f85149; font-weight: 700; } .g { color: #3fb950; font-weight: 700; }
+  .label { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-left: 8px; }
+  .label-red { background: rgba(248,81,73,0.15); color: #f85149; }
+  .label-green { background: rgba(63,185,80,0.15); color: #3fb950; }
+</style>
+</head>
+<body>
+<h2>PII Detection &amp; <span>Redaction</span> in Action</h2>
+<div class="terminal">
+  <div class="bar"><span class="dot dr"></span><span class="dot dy"></span><span class="dot dg"></span></div>
+  <div class="body">
+    <span class="p">$</span> <span class="c">curl</span> http://localhost:8005/v1/chat/completions \<br>
+    &nbsp;&nbsp;-H <span class="f">"Authorization: Bearer demo"</span> \<br>
+    &nbsp;&nbsp;-d <span class="f">'{"model":"gpt-4","messages":[{"role":"user",</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span class="f">"content":"My SSN is <span class="r">123-45-6789</span> and key <span class="r">AKIAIOSFODNN7EXAMPLE</span>"}]}'</span><br><br>
+
+    <span class="r">▶ INBOUND SCAN</span><span class="label label-red">PII DETECTED</span><br>
+    &nbsp;&nbsp;Found: <span class="r">SSN</span> (123-45-6789) — confidence: 1.0<br>
+    &nbsp;&nbsp;Found: <span class="r">AWS_ACCESS_KEY</span> (AKIA...) — confidence: 1.0<br>
+    &nbsp;&nbsp;Action: <span class="f">REDACT</span> (scrubbed before forwarding to OpenAI)<br><br>
+
+    <span class="g">▶ FORWARDED TO OPENAI</span> (with PII removed)<br>
+    &nbsp;&nbsp;Prompt sent: "My SSN is <span class="g">[REDACTED]</span> and key <span class="g">[REDACTED]</span>"<br><br>
+
+    <span class="g">▶ RESPONSE</span><span class="label label-green">CLEAN</span><br>
+    &nbsp;&nbsp;"I notice you've shared sensitive information..."<br>
+    &nbsp;&nbsp;Outbound scan: <span class="g">No PII in response</span><br><br>
+
+    <span class="p">$</span> <span style="color:#484f58"># OpenAI never saw the real SSN or API key</span>
+  </div>
+</div>
+</body>
+</html>

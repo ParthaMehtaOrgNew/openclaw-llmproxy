@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; padding: 40px; background: #0a0d12; font-family: -apple-system, sans-serif; min-width: 1270px; color: #c9d1d9; }
+  h2 { color: #fff; font-size: 24px; margin-bottom: 24px; text-align: center; }
+  h2 span { color: #58a6ff; }
+  .container { max-width: 950px; margin: 0 auto; }
+  table { width: 100%; border-collapse: collapse; background: #161b22; border-radius: 12px; overflow: hidden; }
+  th { background: #0d1117; padding: 14px 16px; text-align: center; font-size: 13px; color: #8b949e; font-weight: 600; border-bottom: 1px solid #21262d; }
+  th:first-child { text-align: left; }
+  th.oc { color: #58a6ff; font-size: 14px; }
+  td { padding: 12px 16px; font-size: 13px; border-bottom: 1px solid #21262d; text-align: center; }
+  td:first-child { text-align: left; font-weight: 600; color: #c9d1d9; }
+  .y { color: #3fb950; font-weight: 700; }
+  .n { color: #484f58; }
+  .yb { color: #3fb950; font-weight: 700; font-size: 14px; }
+  tr.highlight td { background: rgba(88,166,255,0.05); }
+  .note { text-align: center; margin-top: 20px; font-size: 13px; color: #8b949e; }
+  .note strong { color: #58a6ff; }
+</style>
+</head>
+<body>
+<h2>OpenClaw vs <span>Other LLM Proxies</span></h2>
+<div class="container">
+<table>
+  <thead><tr><th>Feature</th><th>LiteLLM</th><th>Portkey</th><th>OpenRouter</th><th class="oc">OpenClaw</th></tr></thead>
+  <tbody>
+    <tr><td>Multi-provider routing</td><td class="y">&#10003;</td><td class="y">&#10003;</td><td class="y">&#10003;</td><td class="yb">&#10003;</td></tr>
+    <tr><td>OpenAI-compatible API</td><td class="y">&#10003;</td><td class="y">&#10003;</td><td class="y">&#10003;</td><td class="yb">&#10003;</td></tr>
+    <tr class="highlight"><td><strong>PII / credential scanning</strong></td><td class="n">&#10007;</td><td class="n">&#10007;</td><td class="n">&#10007;</td><td class="yb">&#10003;</td></tr>
+    <tr class="highlight"><td><strong>Injection detection</strong></td><td class="n">&#10007;</td><td class="n">&#10007;</td><td class="n">&#10007;</td><td class="yb">&#10003;</td></tr>
+    <tr class="highlight"><td><strong>Security webhook alerts</strong></td><td class="n">&#10007;</td><td class="n">&#10007;</td><td class="n">&#10007;</td><td class="yb">&#10003;</td></tr>
+    <tr><td>API format translation</td><td class="y">&#10003;</td><td class="y">&#10003;</td><td class="y">&#10003;</td><td class="yb">&#10003;</td></tr>
+    <tr><td>Spend tracking + budgets</td><td class="y">&#10003;</td><td class="y">&#10003;</td><td class="n">&#10007;</td><td class="yb">&#10003;</td></tr>
+    <tr><td>Multi-tenancy</td><td class="n">&#10007;</td><td class="y">&#10003;</td><td class="n">&#10007;</td><td class="yb">&#10003;</td></tr>
+    <tr><td>Response caching</td><td class="n">&#10007;</td><td class="y">&#10003;</td><td class="n">&#10007;</td><td class="yb">&#10003;</td></tr>
+    <tr><td>Load balancing + fallback</td><td class="y">~</td><td class="y">&#10003;</td><td class="n">&#10007;</td><td class="yb">&#10003;</td></tr>
+    <tr class="highlight"><td><strong>Self-hosted</strong></td><td class="y">&#10003;</td><td class="n">&#10007;</td><td class="n">&#10007;</td><td class="yb">&#10003;</td></tr>
+    <tr class="highlight"><td><strong>Helm chart + Prometheus</strong></td><td class="n">&#10007;</td><td class="n">&#10007;</td><td class="n">&#10007;</td><td class="yb">&#10003;</td></tr>
+    <tr><td>Python SDK</td><td class="y">&#10003;</td><td class="y">&#10003;</td><td class="n">&#10007;</td><td class="yb">&#10003;</td></tr>
+  </tbody>
+</table>
+<p class="note"><strong>Key differentiator:</strong> LiteLLM, Portkey, and OpenRouter route your LLM calls — but none scan what's in them.</p>
+</div>
+</body>
+</html>

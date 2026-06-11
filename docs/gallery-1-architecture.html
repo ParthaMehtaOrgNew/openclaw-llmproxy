@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; padding: 40px; background: #0a0d12; color: #c9d1d9; font-family: 'JetBrains Mono', 'SF Mono', monospace; min-width: 1270px; }
+  h2 { color: #fff; font-size: 24px; margin-bottom: 24px; text-align: center; }
+  h2 span { color: #58a6ff; }
+  pre { font-size: 15px; line-height: 1.8; background: #161b22; padding: 32px 40px; border-radius: 12px; border: 1px solid #21262d; display: inline-block; }
+  .g { color: #3fb950; } .b { color: #58a6ff; } .o { color: #f0883e; } .r { color: #f85149; } .p { color: #bc8cff; } .d { color: #484f58; }
+</style>
+</head>
+<body>
+<h2>OpenClaw LLM Proxy — <span>Architecture</span></h2>
+<pre>
+<span class="b">Client (any SDK)</span>  →  <span class="p">OpenClaw Proxy :8005</span>
+                              │
+                    ┌──────────┼──────────┐
+                    ▼          ▼          ▼
+             <span class="r">Size Limit</span>    <span class="o">Auth</span>    <span class="o">Rate Limit</span>
+                    │          │          │
+                    └──────────┼──────────┘
+                              ▼
+                    <span class="g">┌─── DLP Scanner ───┐</span>
+                    <span class="g">│ PII Detection      │</span>
+                    <span class="g">│ Injection Blocking  │</span>
+                    <span class="g">│ Block / Redact / Log│</span>
+                    <span class="g">└────────────────────┘</span>
+                              │
+                    ┌─────────┼─────────┐─────────┐
+                    ▼         ▼         ▼         ▼
+               <span class="b">OpenAI</span>   <span class="o">Anthropic</span>  <span class="b">Google</span>   <span class="r">Ollama</span>
+               gpt-*    claude-*   gemini-*  local
+                    │         │         │         │
+                    └─────────┼─────────┘─────────┘
+                              ▼
+                    <span class="p">┌─── Response ────┐</span>
+                    <span class="p">│ Outbound PII Scan│</span>
+                    <span class="p">│ Cache (LRU+TTL)  │</span>
+                    <span class="p">│ Log (JSONL)      │</span>
+                    <span class="p">└──────────────────┘</span>
+                              │
+                              ▼
+                    <span class="b">Client receives response</span>
+</pre>
+</body>
+</html>

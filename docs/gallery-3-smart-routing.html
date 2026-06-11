@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; padding: 40px; background: #0a0d12; font-family: -apple-system, sans-serif; min-width: 1270px; color: #c9d1d9; }
+  h2 { color: #fff; font-size: 24px; margin-bottom: 24px; text-align: center; }
+  h2 span { color: #58a6ff; }
+  .container { max-width: 900px; margin: 0 auto; }
+  table { width: 100%; border-collapse: collapse; background: #161b22; border-radius: 12px; overflow: hidden; }
+  th { background: #0d1117; padding: 14px 20px; text-align: left; font-size: 13px; color: #58a6ff; font-weight: 600; border-bottom: 1px solid #21262d; }
+  td { padding: 12px 20px; font-size: 13px; border-bottom: 1px solid #21262d; }
+  .prefix { font-family: 'JetBrains Mono', monospace; color: #f0883e; font-weight: 600; }
+  .provider { color: #c9d1d9; }
+  .url { font-family: 'JetBrains Mono', monospace; color: #484f58; font-size: 11px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+  .cloud { background: rgba(88,166,255,0.15); color: #58a6ff; }
+  .local { background: rgba(63,185,80,0.15); color: #3fb950; }
+  .features { margin-top: 24px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .feat { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 16px; text-align: center; }
+  .feat .icon { font-size: 28px; margin-bottom: 6px; }
+  .feat .name { font-size: 13px; font-weight: 600; color: #fff; }
+  .feat .desc { font-size: 11px; color: #8b949e; margin-top: 4px; }
+</style>
+</head>
+<body>
+<h2>Smart <span>Routing</span> — 6 Backends, One Endpoint</h2>
+<div class="container">
+<table>
+  <thead><tr><th>Model Prefix</th><th>Backend</th><th>URL</th><th>Type</th></tr></thead>
+  <tbody>
+    <tr><td class="prefix">gpt-*</td><td class="provider">OpenAI</td><td class="url">api.openai.com</td><td><span class="badge cloud">Cloud</span></td></tr>
+    <tr><td class="prefix">claude-*</td><td class="provider">Anthropic</td><td class="url">api.anthropic.com</td><td><span class="badge cloud">Cloud</span></td></tr>
+    <tr><td class="prefix">gemini-*</td><td class="provider">Google</td><td class="url">generativelanguage.googleapis.com</td><td><span class="badge cloud">Cloud</span></td></tr>
+    <tr><td class="prefix">vllm/*</td><td class="provider">vLLM</td><td class="url">localhost:8080</td><td><span class="badge local">Local</span></td></tr>
+    <tr><td class="prefix">openclaw/*</td><td class="provider">OpenClaw Gateway</td><td class="url">localhost:3000</td><td><span class="badge local">Local</span></td></tr>
+    <tr><td class="prefix">everything else</td><td class="provider">Ollama</td><td class="url">localhost:11434</td><td><span class="badge local">Local</span></td></tr>
+  </tbody>
+</table>
+<div class="features">
+  <div class="feat"><div class="icon">⚡</div><div class="name">Fallback Chains</div><div class="desc">If OpenAI fails, auto-retry Anthropic then Ollama</div></div>
+  <div class="feat"><div class="icon">⚖️</div><div class="name">Load Balancing</div><div class="desc">Round-robin, random, or least-latency</div></div>
+  <div class="feat"><div class="icon">💰</div><div class="name">Spend Tracking</div><div class="desc">Per-backend cost + monthly budget enforcement</div></div>
+</div>
+</div>
+</body>
+</html>
